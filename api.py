@@ -13,16 +13,35 @@ import time
 import os
 import firebase_admin
 from firebase_admin import credentials, firestore
+import json
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 api = Api(app)
 
 # Initialize Firebase
-cred = credentials.Certificate("floodpath-1c7ef-firebase-adminsdk-fbsvc-957288a212.json")
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://floodpath-1c7ef.firebaseio.com'
-})
-db = firestore.client()
+try:
+    # Try to get Firebase credentials from environment variable
+    firebase_credentials = os.environ.get('FIREBASE_CREDENTIALS')
+    if firebase_credentials:
+        cred_dict = json.loads(firebase_credentials)
+        cred = credentials.Certificate(cred_dict)
+    else:
+        # Fallback to local credentials file
+        cred = credentials.Certificate("floodpath-1c7ef-firebase-adminsdk-fbsvc-957288a212.json")
+    
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': os.environ.get('FIREBASE_DATABASE_URL', 'https://floodpath-1c7ef.firebaseio.com')
+    })
+    db = firestore.client()
+    logger.info("Firebase initialized successfully")
+except Exception as e:
+    logger.error(f"Warning: Firebase initialization failed: {str(e)}")
+    db = None
 
 # Global variables to store the latest data
 latest_water_data = None
@@ -30,29 +49,58 @@ latest_rainfall_data = None
 last_updated = None
 scraping_active = True
 
+def get_chrome_options():
+    """Configure Chrome options for cloud environment"""
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless=new')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-extensions')
+    options.add_argument('--disable-infobars')
+    options.add_argument('--window-size=1920,1080')
+    options.add_argument('--start-maximized')
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    return options
+
+def save_to_firebase(collection_name, data, timestamp):
+    """Save data to Firebase if available"""
+    if db is not None:
+        try:
+            db.collection(collection_name).document('latest').set({
+                'data': data,
+                'last_updated': timestamp
+            })
+            logger.info(f"Data saved to Firebase {collection_name}")
+        except Exception as e:
+            logger.error(f"Error saving to Firebase {collection_name}: {str(e)}")
+
 def scrape_pagasa_water_level():
     """Scrapes the water level data table from PAGASA website"""
     global latest_water_data, last_updated
     
     while scraping_active:
+        driver = None
         try:
-            # Configure Chrome options
-            options = webdriver.ChromeOptions()
-            options.add_argument('--headless')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-
-            # Initialize browser
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            logger.info("Starting water level scraping...")
+            options = get_chrome_options()
+            
+            # Initialize browser with service
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            
+            # Set page load timeout
+            driver.set_page_load_timeout(30)
+            
+            # Navigate to the page
             driver.get("https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/table.do")
             
             # Wait for table to load
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "table.table-type1"))
             )
-            time.sleep(2)
+            time.sleep(5)  # Increased wait time
             
             html = driver.page_source
             soup = BeautifulSoup(html, 'html.parser')
@@ -62,7 +110,7 @@ def scrape_pagasa_water_level():
             
             table = soup.find('table', {'class': 'table-type1'})
             if not table:
-                print("Error: Could not find water level data table")
+                logger.error("Could not find water level data table")
                 continue
             
             data = []
@@ -92,20 +140,18 @@ def scrape_pagasa_water_level():
             last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             # Save to Firebase
-            db.collection('water_levels').document('latest').set({
-                'data': data,
-                'last_updated': last_updated
-            })
+            save_to_firebase('water_levels', data, last_updated)
             
-            print(f"Water level data updated at {last_updated}")
+            logger.info(f"Water level data updated at {last_updated}")
             
         except Exception as e:
-            print(f"Error during water level scraping: {str(e)}")
+            logger.error(f"Error during water level scraping: {str(e)}")
         finally:
-            try:
-                driver.quit()
-            except:
-                pass
+            if driver:
+                try:
+                    driver.quit()
+                except:
+                    pass
         
         time.sleep(300)  # 5 minutes
 
@@ -114,21 +160,26 @@ def scrape_pagasa_rainfall():
     global latest_rainfall_data, last_updated
     
     while scraping_active:
+        driver = None
         try:
-            options = webdriver.ChromeOptions()
-            options.add_argument('--headless')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            logger.info("Starting rainfall scraping...")
+            options = get_chrome_options()
+            
+            # Initialize browser with service
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            
+            # Set page load timeout
+            driver.set_page_load_timeout(30)
+            
+            # Navigate to the page
             driver.get("https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/rainfall/table.do")
             
-            WebDriverWait(driver, 10).until(
+            # Wait for table to load
+            WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "table.table-type1"))
             )
-            time.sleep(2)
+            time.sleep(5)  # Increased wait time
             
             html = driver.page_source
             soup = BeautifulSoup(html, 'html.parser')
@@ -138,7 +189,7 @@ def scrape_pagasa_rainfall():
             
             table = soup.find('table', {'class': 'table-type1'})
             if not table:
-                print("Error: Could not find rainfall data table")
+                logger.error("Could not find rainfall data table")
                 continue
             
             data = []
@@ -170,20 +221,18 @@ def scrape_pagasa_rainfall():
             last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             # Save to Firebase
-            db.collection('rainfall_data').document('latest').set({
-                'data': data,
-                'last_updated': last_updated
-            })
+            save_to_firebase('rainfall_data', data, last_updated)
             
-            print(f"Rainfall data updated at {last_updated}")
+            logger.info(f"Rainfall data updated at {last_updated}")
             
         except Exception as e:
-            print(f"Error during rainfall scraping: {str(e)}")
+            logger.error(f"Error during rainfall scraping: {str(e)}")
         finally:
-            try:
-                driver.quit()
-            except:
-                pass
+            if driver:
+                try:
+                    driver.quit()
+                except:
+                    pass
         
         time.sleep(300)  # 5 minutes
 
@@ -222,6 +271,7 @@ def start_scrapers():
     
     water_thread.start()
     rainfall_thread.start()
+    logger.info("Scraper threads started")
 
 if __name__ == '__main__':
     # Start the background scrapers
