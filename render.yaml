@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: floodpath-api
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+      python -m pip install --upgrade pip
+    startCommand: gunicorn api:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
+      - key: PORT
+        value: 10000
+    healthCheckPath: /water-level
+    autoDeploy: true 
