@@ -278,7 +278,7 @@ if __name__ == '__main__':
     start_scrapers()
     
     # Get port from environment variable or use default
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 10000))
     
     # Run the Flask app
     app.run(host='0.0.0.0', port=port, debug=False)

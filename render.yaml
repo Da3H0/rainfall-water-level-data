@@ -3,13 +3,17 @@ services:
     name: floodpath-api
     env: python
     buildCommand: |
-      pip install -r requirements.txt
       python -m pip install --upgrade pip
-    startCommand: gunicorn api:app
+      pip install -r requirements.txt
+    startCommand: gunicorn api:app --bind 0.0.0.0:$PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.9.0
+        value: 3.11.0
       - key: PORT
         value: 10000
+      - key: FIREBASE_CREDENTIALS
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false
     healthCheckPath: /water-level
     autoDeploy: true 
