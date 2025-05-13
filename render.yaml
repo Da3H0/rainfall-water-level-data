@@ -3,12 +3,20 @@ services:
     name: rainfall-water-level-data
     env: python
     buildCommand: |
+      # Install Chrome dependencies
       apt-get update
-      apt-get install -y wget gnupg
+      apt-get install -y wget gnupg unzip xvfb libxi6 libgconf-2-4
+      
+      # Install Chrome
       wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
       echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list
       apt-get update
       apt-get install -y google-chrome-stable
+      
+      # Verify Chrome installation
+      google-chrome --version
+      
+      # Install ChromeDriver
       CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1)
       wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}"
       CHROMEDRIVER_VERSION=$(cat "LATEST_RELEASE_${CHROME_VERSION}")
@@ -16,6 +24,12 @@ services:
       unzip chromedriver_linux64.zip
       mv chromedriver /usr/local/bin/
       chmod +x /usr/local/bin/chromedriver
+      
+      # Verify ChromeDriver installation
+      chromedriver --version
+      
+      # Install Python dependencies
+      pip install --upgrade pip
       pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
@@ -25,5 +39,7 @@ services:
         value: "true"
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: DISPLAY
+        value: ":99"
     healthCheckPath: /health
     autoDeploy: true 

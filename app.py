@@ -377,7 +377,31 @@ def initialize_webdriver():
             logger.info("Running in production environment (Render)")
             chrome_path = os.environ.get('CHROME_BIN', '/usr/bin/google-chrome')
             logger.info(f"Chrome binary path: {chrome_path}")
+            
+            # Verify Chrome binary exists
+            if not os.path.exists(chrome_path):
+                logger.error(f"Chrome binary not found at {chrome_path}")
+                # Try to find Chrome in common locations
+                common_paths = [
+                    '/usr/bin/google-chrome',
+                    '/usr/bin/google-chrome-stable',
+                    '/usr/bin/chrome',
+                    '/usr/bin/chromium',
+                    '/usr/bin/chromium-browser'
+                ]
+                for path in common_paths:
+                    if os.path.exists(path):
+                        logger.info(f"Found Chrome at {path}")
+                        chrome_path = path
+                        break
+                else:
+                    logger.error("Chrome not found in common locations")
+                    return None
+            
             options.binary_location = chrome_path
+            
+            # Add display configuration for headless mode
+            os.environ['DISPLAY'] = ':99'
         
         # Try to use Chrome from PATH first
         try:
