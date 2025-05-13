@@ -484,16 +484,19 @@ def scrape_pagasa_rainfall():
 class WaterLevelData(Resource):
     def get(self):
         date = request.args.get('date')
+        format_type = request.args.get('format', 'json')  # Default to JSON format
+        
         if date:
             try:
                 # Try to get data for specific date
                 doc = db.collection(f'water_levels_{date}').document('latest').get()
                 if doc.exists:
-                    return {
+                    data = {
                         'status': 'success',
                         'last_updated': doc.get('last_updated'),
                         'data': doc.get('data')
                     }
+                    return data if format_type == 'json' else jsonify(data)
             except Exception as e:
                 logger.error(f"Error fetching water level data for date {date}: {str(e)}")
         
@@ -501,25 +504,29 @@ class WaterLevelData(Resource):
         if latest_water_data is None:
             return {'error': 'Water level data not available yet'}, 503
         
-        return {
+        data = {
             'status': 'success',
             'last_updated': last_updated,
             'data': latest_water_data
         }
+        return data if format_type == 'json' else jsonify(data)
 
 class RainfallData(Resource):
     def get(self):
         date = request.args.get('date')
+        format_type = request.args.get('format', 'json')  # Default to JSON format
+        
         if date:
             try:
                 # Try to get data for specific date
                 doc = db.collection(f'rainfall_data_{date}').document('latest').get()
                 if doc.exists:
-                    return {
+                    data = {
                         'status': 'success',
                         'last_updated': doc.get('last_updated'),
                         'data': doc.get('data')
                     }
+                    return data if format_type == 'json' else jsonify(data)
             except Exception as e:
                 logger.error(f"Error fetching rainfall data for date {date}: {str(e)}")
         
@@ -527,10 +534,86 @@ class RainfallData(Resource):
         if latest_rainfall_data is None:
             return {'error': 'Rainfall data not available yet'}, 503
         
-        return {
+        data = {
             'status': 'success',
             'last_updated': last_updated,
             'data': latest_rainfall_data
+        }
+        return data if format_type == 'json' else jsonify(data)
+
+# Add new API endpoints for combined data
+class CombinedData(Resource):
+    def get(self):
+        date = request.args.get('date')
+        format_type = request.args.get('format', 'json')  # Default to JSON format
+        
+        water_data = None
+        rainfall_data = None
+        
+        # Get water level data
+        if date:
+            try:
+                doc = db.collection(f'water_levels_{date}').document('latest').get()
+                if doc.exists:
+                    water_data = {
+                        'last_updated': doc.get('last_updated'),
+                        'data': doc.get('data')
+                    }
+            except Exception as e:
+                logger.error(f"Error fetching water level data for date {date}: {str(e)}")
+        
+        if water_data is None and latest_water_data is not None:
+            water_data = {
+                'last_updated': last_updated,
+                'data': latest_water_data
+            }
+        
+        # Get rainfall data
+        if date:
+            try:
+                doc = db.collection(f'rainfall_data_{date}').document('latest').get()
+                if doc.exists:
+                    rainfall_data = {
+                        'last_updated': doc.get('last_updated'),
+                        'data': doc.get('data')
+                    }
+            except Exception as e:
+                logger.error(f"Error fetching rainfall data for date {date}: {str(e)}")
+        
+        if rainfall_data is None and latest_rainfall_data is not None:
+            rainfall_data = {
+                'last_updated': last_updated,
+                'data': latest_rainfall_data
+            }
+        
+        data = {
+            'status': 'success',
+            'water_level': water_data,
+            'rainfall': rainfall_data
+        }
+        
+        return data if format_type == 'json' else jsonify(data)
+
+# Add new API endpoint for available dates
+class AvailableDates(Resource):
+    def get(self):
+        available_dates = []
+        try:
+            if db:
+                collections = db.collections()
+                for collection in collections:
+                    if collection.id.startswith('water_levels_') or collection.id.startswith('rainfall_data_'):
+                        date = collection.id.split('_')[-1]
+                        if date not in available_dates:
+                            available_dates.append(date)
+        except Exception as e:
+            logger.error(f"Error fetching available dates: {str(e)}")
+        
+        available_dates.sort(reverse=True)
+        
+        return {
+            'status': 'success',
+            'dates': available_dates
         }
 
 @app.route('/')
@@ -557,6 +640,13 @@ def index():
                                 rainfall_data={'data': latest_rainfall_data, 'last_updated': last_updated} if latest_rainfall_data else None,
                                 available_dates=available_dates)
 
+# Update the API routes
+api.add_resource(WaterLevelData, '/api/water-level')
+api.add_resource(RainfallData, '/api/rainfall')
+api.add_resource(CombinedData, '/api/combined')
+api.add_resource(AvailableDates, '/api/dates')
+
+# Keep the original routes for backward compatibility
 api.add_resource(WaterLevelData, '/water-level')
 api.add_resource(RainfallData, '/rainfall')
 
