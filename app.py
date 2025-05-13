@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 from flask_restful import Api, Resource
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -48,6 +48,8 @@ latest_water_data = None
 latest_rainfall_data = None
 last_updated = None
 scraping_active = True
+last_water_hash = None  # Add this to track changes
+last_rainfall_hash = None  # Add this to track changes
 
 # Add this HTML template at the top of the file after the imports
 HTML_TEMPLATE = """
@@ -64,7 +66,95 @@ HTML_TEMPLATE = """
         th { background-color: #f2f2f2; }
         .timestamp { color: #666; font-size: 0.9em; }
         .error { color: red; }
+        .date-header { 
+            background-color: #e9ecef; 
+            padding: 10px; 
+            margin-top: 20px; 
+            border-radius: 5px;
+        }
+        .date-selector {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .date-selector select {
+            padding: 5px;
+            margin-right: 10px;
+        }
     </style>
+    <script>
+        function updateData() {
+            const waterDate = document.getElementById('waterDate').value;
+            const rainfallDate = document.getElementById('rainfallDate').value;
+            
+            // Fetch water level data
+            fetch(`/water-level?date=${waterDate}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updateWaterTable(data.data, data.last_updated);
+                    }
+                });
+            
+            // Fetch rainfall data
+            fetch(`/rainfall?date=${rainfallDate}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        updateRainfallTable(data.data, data.last_updated);
+                    }
+                });
+        }
+
+        function updateWaterTable(data, timestamp) {
+            const tbody = document.getElementById('waterTableBody');
+            tbody.innerHTML = '';
+            
+            data.forEach(station => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${station.station}</td>
+                    <td>${station.current_wl}</td>
+                    <td>${station.wl_30min}</td>
+                    <td>${station.wl_1hr}</td>
+                    <td>${station.alert_level}</td>
+                    <td>${station.alarm_level}</td>
+                    <td>${station.critical_level}</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('waterTimestamp').textContent = `Last updated: ${timestamp}`;
+        }
+
+        function updateRainfallTable(data, timestamp) {
+            const tbody = document.getElementById('rainfallTableBody');
+            tbody.innerHTML = '';
+            
+            data.forEach(station => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${station.station}</td>
+                    <td>${station.current_rf}</td>
+                    <td>${station.rf_30min}</td>
+                    <td>${station.rf_1hr}</td>
+                    <td>${station.rf_3hr}</td>
+                    <td>${station.rf_6hr}</td>
+                    <td>${station.rf_12hr}</td>
+                    <td>${station.rf_24hr}</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('rainfallTimestamp').textContent = `Last updated: ${timestamp}`;
+        }
+
+        // Update data every 5 minutes
+        setInterval(updateData, 300000);
+        // Initial load
+        document.addEventListener('DOMContentLoaded', updateData);
+    </script>
 </head>
 <body>
     <div class="container">
@@ -72,9 +162,17 @@ HTML_TEMPLATE = """
         
         <div class="section">
             <h2>Water Level Data</h2>
-            {% if water_data %}
-                <p class="timestamp">Last updated: {{ water_data.last_updated }}</p>
-                <table>
+            <div class="date-selector">
+                <label for="waterDate">Select Date:</label>
+                <select id="waterDate" onchange="updateData()">
+                    {% for date in available_dates %}
+                    <option value="{{ date }}">{{ date }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <p id="waterTimestamp" class="timestamp">Last updated: {{ water_data.last_updated if water_data else 'Not available' }}</p>
+            <table>
+                <thead>
                     <tr>
                         <th>Station</th>
                         <th>Current WL</th>
@@ -84,28 +182,38 @@ HTML_TEMPLATE = """
                         <th>Alarm Level</th>
                         <th>Critical Level</th>
                     </tr>
-                    {% for station in water_data.data %}
-                    <tr>
-                        <td>{{ station.station }}</td>
-                        <td>{{ station.current_wl }}</td>
-                        <td>{{ station.wl_30min }}</td>
-                        <td>{{ station.wl_1hr }}</td>
-                        <td>{{ station.alert_level }}</td>
-                        <td>{{ station.alarm_level }}</td>
-                        <td>{{ station.critical_level }}</td>
-                    </tr>
-                    {% endfor %}
-                </table>
-            {% else %}
-                <p class="error">Water level data not available yet</p>
-            {% endif %}
+                </thead>
+                <tbody id="waterTableBody">
+                    {% if water_data %}
+                        {% for station in water_data.data %}
+                        <tr>
+                            <td>{{ station.station }}</td>
+                            <td>{{ station.current_wl }}</td>
+                            <td>{{ station.wl_30min }}</td>
+                            <td>{{ station.wl_1hr }}</td>
+                            <td>{{ station.alert_level }}</td>
+                            <td>{{ station.alarm_level }}</td>
+                            <td>{{ station.critical_level }}</td>
+                        </tr>
+                        {% endfor %}
+                    {% endif %}
+                </tbody>
+            </table>
         </div>
 
         <div class="section">
             <h2>Rainfall Data</h2>
-            {% if rainfall_data %}
-                <p class="timestamp">Last updated: {{ rainfall_data.last_updated }}</p>
-                <table>
+            <div class="date-selector">
+                <label for="rainfallDate">Select Date:</label>
+                <select id="rainfallDate" onchange="updateData()">
+                    {% for date in available_dates %}
+                    <option value="{{ date }}">{{ date }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <p id="rainfallTimestamp" class="timestamp">Last updated: {{ rainfall_data.last_updated if rainfall_data else 'Not available' }}</p>
+            <table>
+                <thead>
                     <tr>
                         <th>Station</th>
                         <th>Current RF</th>
@@ -116,22 +224,24 @@ HTML_TEMPLATE = """
                         <th>12hr RF</th>
                         <th>24hr RF</th>
                     </tr>
-                    {% for station in rainfall_data.data %}
-                    <tr>
-                        <td>{{ station.station }}</td>
-                        <td>{{ station.current_rf }}</td>
-                        <td>{{ station.rf_30min }}</td>
-                        <td>{{ station.rf_1hr }}</td>
-                        <td>{{ station.rf_3hr }}</td>
-                        <td>{{ station.rf_6hr }}</td>
-                        <td>{{ station.rf_12hr }}</td>
-                        <td>{{ station.rf_24hr }}</td>
-                    </tr>
-                    {% endfor %}
-                </table>
-            {% else %}
-                <p class="error">Rainfall data not available yet</p>
-            {% endif %}
+                </thead>
+                <tbody id="rainfallTableBody">
+                    {% if rainfall_data %}
+                        {% for station in rainfall_data.data %}
+                        <tr>
+                            <td>{{ station.station }}</td>
+                            <td>{{ station.current_rf }}</td>
+                            <td>{{ station.rf_30min }}</td>
+                            <td>{{ station.rf_1hr }}</td>
+                            <td>{{ station.rf_3hr }}</td>
+                            <td>{{ station.rf_6hr }}</td>
+                            <td>{{ station.rf_12hr }}</td>
+                            <td>{{ station.rf_24hr }}</td>
+                        </tr>
+                        {% endfor %}
+                    {% endif %}
+                </tbody>
+            </table>
         </div>
     </div>
 </body>
@@ -153,21 +263,48 @@ def get_chrome_options():
     options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     return options
 
+def calculate_data_hash(data):
+    """Calculate a hash of the data to detect changes"""
+    import hashlib
+    return hashlib.md5(str(data).encode()).hexdigest()
+
 def save_to_firebase(collection_name, data, timestamp):
     """Save data to Firebase if available"""
     if db is not None:
         try:
+            # Parse the timestamp to get the date
+            try:
+                date_obj = datetime.strptime(timestamp, "%Y-%m-%d %H:%M")
+                date_str = date_obj.strftime("%Y-%m-%d")
+            except:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+
+            # Add a timestamp field for each data point
+            for item in data:
+                item['firebase_timestamp'] = firestore.SERVER_TIMESTAMP
+            
+            # Save to date-based collection
+            date_collection = f"{collection_name}_{date_str}"
+            db.collection(date_collection).document('latest').set({
+                'data': data,
+                'last_updated': timestamp,
+                'firebase_timestamp': firestore.SERVER_TIMESTAMP
+            })
+            
+            # Also save to the main collection for latest data
             db.collection(collection_name).document('latest').set({
                 'data': data,
-                'last_updated': timestamp
+                'last_updated': timestamp,
+                'firebase_timestamp': firestore.SERVER_TIMESTAMP
             })
-            logger.info(f"Data saved to Firebase {collection_name}")
+            
+            logger.info(f"Data saved to Firebase {date_collection} at {timestamp}")
         except Exception as e:
             logger.error(f"Error saving to Firebase {collection_name}: {str(e)}")
 
 def scrape_pagasa_water_level():
     """Scrapes the water level data table from PAGASA website"""
-    global latest_water_data, last_updated
+    global latest_water_data, last_updated, last_water_hash
     
     while scraping_active:
         driver = None
@@ -225,13 +362,20 @@ def scrape_pagasa_water_level():
                         'timestamp': search_time
                     })
             
-            latest_water_data = data
-            last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Calculate hash of new data
+            new_hash = calculate_data_hash(data)
             
-            # Save to Firebase
-            save_to_firebase('water_levels', data, last_updated)
-            
-            logger.info(f"Water level data updated at {last_updated}")
+            # Only update if data has changed
+            if new_hash != last_water_hash:
+                latest_water_data = data
+                last_updated = search_time
+                last_water_hash = new_hash
+                
+                # Save to Firebase
+                save_to_firebase('water_levels', data, search_time)
+                logger.info(f"Water level data updated at {search_time}")
+            else:
+                logger.info("No changes in water level data")
             
         except Exception as e:
             logger.error(f"Error during water level scraping: {str(e)}")
@@ -246,7 +390,7 @@ def scrape_pagasa_water_level():
 
 def scrape_pagasa_rainfall():
     """Scrapes the rainfall data table from PAGASA website"""
-    global latest_rainfall_data, last_updated
+    global latest_rainfall_data, last_updated, last_rainfall_hash
     
     while scraping_active:
         driver = None
@@ -306,13 +450,20 @@ def scrape_pagasa_rainfall():
                         'timestamp': search_time
                     })
             
-            latest_rainfall_data = data
-            last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Calculate hash of new data
+            new_hash = calculate_data_hash(data)
             
-            # Save to Firebase
-            save_to_firebase('rainfall_data', data, last_updated)
-            
-            logger.info(f"Rainfall data updated at {last_updated}")
+            # Only update if data has changed
+            if new_hash != last_rainfall_hash:
+                latest_rainfall_data = data
+                last_updated = search_time
+                last_rainfall_hash = new_hash
+                
+                # Save to Firebase
+                save_to_firebase('rainfall_data', data, search_time)
+                logger.info(f"Rainfall data updated at {search_time}")
+            else:
+                logger.info("No changes in rainfall data")
             
         except Exception as e:
             logger.error(f"Error during rainfall scraping: {str(e)}")
@@ -327,6 +478,21 @@ def scrape_pagasa_rainfall():
 
 class WaterLevelData(Resource):
     def get(self):
+        date = request.args.get('date')
+        if date:
+            try:
+                # Try to get data for specific date
+                doc = db.collection(f'water_levels_{date}').document('latest').get()
+                if doc.exists:
+                    return {
+                        'status': 'success',
+                        'last_updated': doc.get('last_updated'),
+                        'data': doc.get('data')
+                    }
+            except Exception as e:
+                logger.error(f"Error fetching water level data for date {date}: {str(e)}")
+        
+        # Fallback to latest data
         if latest_water_data is None:
             return {'error': 'Water level data not available yet'}, 503
         
@@ -338,6 +504,21 @@ class WaterLevelData(Resource):
 
 class RainfallData(Resource):
     def get(self):
+        date = request.args.get('date')
+        if date:
+            try:
+                # Try to get data for specific date
+                doc = db.collection(f'rainfall_data_{date}').document('latest').get()
+                if doc.exists:
+                    return {
+                        'status': 'success',
+                        'last_updated': doc.get('last_updated'),
+                        'data': doc.get('data')
+                    }
+            except Exception as e:
+                logger.error(f"Error fetching rainfall data for date {date}: {str(e)}")
+        
+        # Fallback to latest data
         if latest_rainfall_data is None:
             return {'error': 'Rainfall data not available yet'}, 503
         
@@ -347,12 +528,29 @@ class RainfallData(Resource):
             'data': latest_rainfall_data
         }
 
-# Add this new route before the api.add_resource lines
 @app.route('/')
 def index():
+    # Get available dates from Firebase
+    available_dates = []
+    try:
+        if db:
+            # Get all collections
+            collections = db.collections()
+            for collection in collections:
+                if collection.id.startswith('water_levels_') or collection.id.startswith('rainfall_data_'):
+                    date = collection.id.split('_')[-1]
+                    if date not in available_dates:
+                        available_dates.append(date)
+    except Exception as e:
+        logger.error(f"Error fetching available dates: {str(e)}")
+    
+    # Sort dates in descending order
+    available_dates.sort(reverse=True)
+    
     return render_template_string(HTML_TEMPLATE, 
                                 water_data={'data': latest_water_data, 'last_updated': last_updated} if latest_water_data else None,
-                                rainfall_data={'data': latest_rainfall_data, 'last_updated': last_updated} if latest_rainfall_data else None)
+                                rainfall_data={'data': latest_rainfall_data, 'last_updated': last_updated} if latest_rainfall_data else None,
+                                available_dates=available_dates)
 
 api.add_resource(WaterLevelData, '/water-level')
 api.add_resource(RainfallData, '/rainfall')
