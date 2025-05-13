@@ -50,203 +50,7 @@ last_updated = None
 scraping_active = True
 last_water_hash = None  # Add this to track changes
 last_rainfall_hash = None  # Add this to track changes
-
-# Add this HTML template at the top of the file after the imports
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>FloodPath Data</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .section { margin-bottom: 30px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .timestamp { color: #666; font-size: 0.9em; }
-        .error { color: red; }
-        .date-header { 
-            background-color: #e9ecef; 
-            padding: 10px; 
-            margin-top: 20px; 
-            border-radius: 5px;
-        }
-        .date-selector {
-            margin: 20px 0;
-            padding: 10px;
-            background-color: #f8f9fa;
-            border-radius: 5px;
-        }
-        .date-selector select {
-            padding: 5px;
-            margin-right: 10px;
-        }
-    </style>
-    <script>
-        function updateData() {
-            const waterDate = document.getElementById('waterDate').value;
-            const rainfallDate = document.getElementById('rainfallDate').value;
-            
-            // Fetch water level data
-            fetch(`/water-level?date=${waterDate}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        updateWaterTable(data.data, data.last_updated);
-                    }
-                });
-            
-            // Fetch rainfall data
-            fetch(`/rainfall?date=${rainfallDate}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        updateRainfallTable(data.data, data.last_updated);
-                    }
-                });
-        }
-
-        function updateWaterTable(data, timestamp) {
-            const tbody = document.getElementById('waterTableBody');
-            tbody.innerHTML = '';
-            
-            data.forEach(station => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${station.station}</td>
-                    <td>${station.current_wl}</td>
-                    <td>${station.wl_30min}</td>
-                    <td>${station.wl_1hr}</td>
-                    <td>${station.alert_level}</td>
-                    <td>${station.alarm_level}</td>
-                    <td>${station.critical_level}</td>
-                `;
-                tbody.appendChild(row);
-            });
-            
-            document.getElementById('waterTimestamp').textContent = `Last updated: ${timestamp}`;
-        }
-
-        function updateRainfallTable(data, timestamp) {
-            const tbody = document.getElementById('rainfallTableBody');
-            tbody.innerHTML = '';
-            
-            data.forEach(station => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${station.station}</td>
-                    <td>${station.current_rf}</td>
-                    <td>${station.rf_30min}</td>
-                    <td>${station.rf_1hr}</td>
-                    <td>${station.rf_3hr}</td>
-                    <td>${station.rf_6hr}</td>
-                    <td>${station.rf_12hr}</td>
-                    <td>${station.rf_24hr}</td>
-                `;
-                tbody.appendChild(row);
-            });
-            
-            document.getElementById('rainfallTimestamp').textContent = `Last updated: ${timestamp}`;
-        }
-
-        // Update data every 5 minutes
-        setInterval(updateData, 300000);
-        // Initial load
-        document.addEventListener('DOMContentLoaded', updateData);
-    </script>
-</head>
-<body>
-    <div class="container">
-        <h1>FloodPath Data</h1>
-        
-        <div class="section">
-            <h2>Water Level Data</h2>
-            <div class="date-selector">
-                <label for="waterDate">Select Date:</label>
-                <select id="waterDate" onchange="updateData()">
-                    {% for date in available_dates %}
-                    <option value="{{ date }}">{{ date }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <p id="waterTimestamp" class="timestamp">Last updated: {{ water_data.last_updated if water_data else 'Not available' }}</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Station</th>
-                        <th>Current WL</th>
-                        <th>30min WL</th>
-                        <th>1hr WL</th>
-                        <th>Alert Level</th>
-                        <th>Alarm Level</th>
-                        <th>Critical Level</th>
-                    </tr>
-                </thead>
-                <tbody id="waterTableBody">
-                    {% if water_data %}
-                        {% for station in water_data.data %}
-                        <tr>
-                            <td>{{ station.station }}</td>
-                            <td>{{ station.current_wl }}</td>
-                            <td>{{ station.wl_30min }}</td>
-                            <td>{{ station.wl_1hr }}</td>
-                            <td>{{ station.alert_level }}</td>
-                            <td>{{ station.alarm_level }}</td>
-                            <td>{{ station.critical_level }}</td>
-                        </tr>
-                        {% endfor %}
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="section">
-            <h2>Rainfall Data</h2>
-            <div class="date-selector">
-                <label for="rainfallDate">Select Date:</label>
-                <select id="rainfallDate" onchange="updateData()">
-                    {% for date in available_dates %}
-                    <option value="{{ date }}">{{ date }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <p id="rainfallTimestamp" class="timestamp">Last updated: {{ rainfall_data.last_updated if rainfall_data else 'Not available' }}</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Station</th>
-                        <th>Current RF</th>
-                        <th>30min RF</th>
-                        <th>1hr RF</th>
-                        <th>3hr RF</th>
-                        <th>6hr RF</th>
-                        <th>12hr RF</th>
-                        <th>24hr RF</th>
-                    </tr>
-                </thead>
-                <tbody id="rainfallTableBody">
-                    {% if rainfall_data %}
-                        {% for station in rainfall_data.data %}
-                        <tr>
-                            <td>{{ station.station }}</td>
-                            <td>{{ station.current_rf }}</td>
-                            <td>{{ station.rf_30min }}</td>
-                            <td>{{ station.rf_1hr }}</td>
-                            <td>{{ station.rf_3hr }}</td>
-                            <td>{{ station.rf_6hr }}</td>
-                            <td>{{ station.rf_12hr }}</td>
-                            <td>{{ station.rf_24hr }}</td>
-                        </tr>
-                        {% endfor %}
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</body>
-</html>
-"""
+_scrapers_started = False  # Add this to track if scrapers have been started
 
 def get_chrome_options():
     """Configure Chrome options for cloud environment"""
@@ -535,6 +339,7 @@ class RainfallData(Resource):
 
 @app.route('/')
 def index():
+    ensure_scrapers_started()  # Ensure scrapers are running
     # Get available dates from Firebase
     available_dates = []
     try:
@@ -572,9 +377,24 @@ def start_scrapers():
     rainfall_thread.start()
     logger.info("Scraper threads started")
 
+def ensure_scrapers_started():
+    """Ensure scrapers are started only once"""
+    global _scrapers_started
+    if not _scrapers_started:
+        start_scrapers()
+        _scrapers_started = True
+
+# Add this HTML template at the top of the file after the imports
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+// ... existing code ...
+</html>
+"""
+
 if __name__ == '__main__':
     # Start the background scrapers
-    start_scrapers()
+    ensure_scrapers_started()
     
     # Get port from environment variable or use default
     port = int(os.environ.get('PORT', 10000))
