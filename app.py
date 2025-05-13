@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template_string
 from flask_restful import Api, Resource
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -48,6 +48,95 @@ latest_water_data = None
 latest_rainfall_data = None
 last_updated = None
 scraping_active = True
+
+# Add this HTML template at the top of the file after the imports
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FloodPath Data</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .section { margin-bottom: 30px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .timestamp { color: #666; font-size: 0.9em; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>FloodPath Data</h1>
+        
+        <div class="section">
+            <h2>Water Level Data</h2>
+            {% if water_data %}
+                <p class="timestamp">Last updated: {{ water_data.last_updated }}</p>
+                <table>
+                    <tr>
+                        <th>Station</th>
+                        <th>Current WL</th>
+                        <th>30min WL</th>
+                        <th>1hr WL</th>
+                        <th>Alert Level</th>
+                        <th>Alarm Level</th>
+                        <th>Critical Level</th>
+                    </tr>
+                    {% for station in water_data.data %}
+                    <tr>
+                        <td>{{ station.station }}</td>
+                        <td>{{ station.current_wl }}</td>
+                        <td>{{ station.wl_30min }}</td>
+                        <td>{{ station.wl_1hr }}</td>
+                        <td>{{ station.alert_level }}</td>
+                        <td>{{ station.alarm_level }}</td>
+                        <td>{{ station.critical_level }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            {% else %}
+                <p class="error">Water level data not available yet</p>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <h2>Rainfall Data</h2>
+            {% if rainfall_data %}
+                <p class="timestamp">Last updated: {{ rainfall_data.last_updated }}</p>
+                <table>
+                    <tr>
+                        <th>Station</th>
+                        <th>Current RF</th>
+                        <th>30min RF</th>
+                        <th>1hr RF</th>
+                        <th>3hr RF</th>
+                        <th>6hr RF</th>
+                        <th>12hr RF</th>
+                        <th>24hr RF</th>
+                    </tr>
+                    {% for station in rainfall_data.data %}
+                    <tr>
+                        <td>{{ station.station }}</td>
+                        <td>{{ station.current_rf }}</td>
+                        <td>{{ station.rf_30min }}</td>
+                        <td>{{ station.rf_1hr }}</td>
+                        <td>{{ station.rf_3hr }}</td>
+                        <td>{{ station.rf_6hr }}</td>
+                        <td>{{ station.rf_12hr }}</td>
+                        <td>{{ station.rf_24hr }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            {% else %}
+                <p class="error">Rainfall data not available yet</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
+"""
 
 def get_chrome_options():
     """Configure Chrome options for cloud environment"""
@@ -257,6 +346,13 @@ class RainfallData(Resource):
             'last_updated': last_updated,
             'data': latest_rainfall_data
         }
+
+# Add this new route before the api.add_resource lines
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE, 
+                                water_data={'data': latest_water_data, 'last_updated': last_updated} if latest_water_data else None,
+                                rainfall_data={'data': latest_rainfall_data, 'last_updated': last_updated} if latest_rainfall_data else None)
 
 api.add_resource(WaterLevelData, '/water-level')
 api.add_resource(RainfallData, '/rainfall')
