@@ -270,6 +270,14 @@ def get_chrome_options():
     options.add_argument('--allow-running-insecure-content')
     options.add_argument('--ignore-certificate-errors')
     options.add_argument('--ignore-ssl-errors')
+    options.add_argument('--disable-gpu-sandbox')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--no-first-run')
+    options.add_argument('--no-zygote')
+    options.add_argument('--single-process')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-accelerated-2d-canvas')
+    options.add_argument('--disable-gl-drawing-for-tests')
     options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     return options
 
@@ -320,11 +328,38 @@ def save_to_firebase(collection_name, data, timestamp):
 def initialize_webdriver():
     """Initialize and return a configured webdriver instance"""
     try:
+        logger.info("Initializing webdriver...")
         options = get_chrome_options()
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
-        driver.set_page_load_timeout(30)
-        return driver
+        
+        # Log Chrome binary path in production
+        if os.environ.get('RENDER'):
+            logger.info("Running in production environment (Render)")
+            chrome_path = os.environ.get('CHROME_BIN', '/usr/bin/google-chrome')
+            logger.info(f"Chrome binary path: {chrome_path}")
+            options.binary_location = chrome_path
+        
+        # Try to use Chrome from PATH first
+        try:
+            logger.info("Attempting to use Chrome from PATH...")
+            driver = webdriver.Chrome(options=options)
+            driver.set_page_load_timeout(30)
+            logger.info("Successfully initialized Chrome from PATH")
+            return driver
+        except Exception as e:
+            logger.warning(f"Failed to use Chrome from PATH: {str(e)}")
+        
+        # Fallback to ChromeDriverManager
+        try:
+            logger.info("Attempting to use ChromeDriverManager...")
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            driver.set_page_load_timeout(30)
+            logger.info("Successfully initialized Chrome with ChromeDriverManager")
+            return driver
+        except Exception as e:
+            logger.error(f"Failed to initialize Chrome with ChromeDriverManager: {str(e)}")
+            raise
+        
     except Exception as e:
         logger.error(f"Error initializing webdriver: {str(e)}")
         return None
@@ -348,9 +383,11 @@ def scrape_pagasa_water_level():
                 continue
             
             # Navigate to the page
+            logger.info("Navigating to water level page...")
             driver.get("https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/table.do")
             
             # Wait for table to load with increased timeout
+            logger.info("Waiting for water level table to load...")
             WebDriverWait(driver, 30).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "table.table-type1"))
             )
@@ -424,8 +461,8 @@ def scrape_pagasa_water_level():
             if driver:
                 try:
                     driver.quit()
-                except:
-                    pass
+                except Exception as e:
+                    logger.error(f"Error quitting webdriver: {str(e)}")
         
         # Calculate next scrape time to maintain 5-minute intervals
         next_scrape = datetime.now() + timedelta(minutes=5)
@@ -616,9 +653,20 @@ api.add_resource(RainfallData, '/rainfall')
 
 def start_scrapers():
     """Start the background scraper threads"""
-    global water_thread, rainfall_thread
+    global water_thread, rainfall_thread, scraping_active
     
     try:
+        # Test webdriver initialization before starting threads
+        logger.info("Testing webdriver initialization...")
+        test_driver = initialize_webdriver()
+        if test_driver:
+            test_driver.quit()
+            logger.info("Webdriver test successful")
+        else:
+            logger.error("Webdriver test failed")
+            scraping_active = False
+            return
+        
         water_thread = threading.Thread(target=scrape_pagasa_water_level)
         rainfall_thread = threading.Thread(target=scrape_pagasa_rainfall)
         
@@ -631,8 +679,8 @@ def start_scrapers():
         
         # Add error handling for thread monitoring
         def monitor_threads():
-            global water_thread, rainfall_thread
-            while True:
+            global water_thread, rainfall_thread, scraping_active
+            while scraping_active:
                 try:
                     if not water_thread.is_alive():
                         logger.error("Water level scraper thread died, restarting...")
@@ -657,9 +705,15 @@ def start_scrapers():
         
     except Exception as e:
         logger.error(f"Error starting scraper threads: {str(e)}")
+        scraping_active = False
 
 # Initialize scraping when the module is imported
-start_scrapers()
+try:
+    logger.info("Starting scraper initialization...")
+    start_scrapers()
+except Exception as e:
+    logger.error(f"Failed to start scrapers: {str(e)}")
+    scraping_active = False
 
 # Add health check endpoint
 @app.route('/health')
@@ -668,7 +722,12 @@ def health_check():
     try:
         # Check if scraping is active
         if not scraping_active:
-            return jsonify({'status': 'error', 'message': 'Scraping is not active'}), 503
+            return jsonify({
+                'status': 'error',
+                'message': 'Scraping is not active',
+                'water_thread_alive': water_thread.is_alive() if water_thread else False,
+                'rainfall_thread_alive': rainfall_thread.is_alive() if rainfall_thread else False
+            }), 503
         
         # Check if we have recent data
         current_time = datetime.now()
@@ -681,14 +740,18 @@ def health_check():
                 return jsonify({
                     'status': 'warning',
                     'message': f'No data updates in {int(time_diff/60)} minutes',
-                    'last_update': last_updated
+                    'last_update': last_updated,
+                    'water_thread_alive': water_thread.is_alive() if water_thread else False,
+                    'rainfall_thread_alive': rainfall_thread.is_alive() if rainfall_thread else False
                 }), 200
         
         return jsonify({
             'status': 'healthy',
             'last_update': last_updated,
             'water_data_available': latest_water_data is not None,
-            'rainfall_data_available': latest_rainfall_data is not None
+            'rainfall_data_available': latest_rainfall_data is not None,
+            'water_thread_alive': water_thread.is_alive() if water_thread else False,
+            'rainfall_thread_alive': rainfall_thread.is_alive() if rainfall_thread else False
         }), 200
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
