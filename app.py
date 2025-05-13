@@ -7,7 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 import threading
 import time
 import os
@@ -262,6 +262,14 @@ def get_chrome_options():
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--start-maximized')
     options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_argument('--disable-software-rasterizer')
+    options.add_argument('--disable-features=VizDisplayCompositor')
+    options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+    options.add_argument('--disable-site-isolation-trials')
+    options.add_argument('--disable-web-security')
+    options.add_argument('--allow-running-insecure-content')
+    options.add_argument('--ignore-certificate-errors')
+    options.add_argument('--ignore-ssl-errors')
     options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     return options
 
@@ -309,22 +317,35 @@ def save_to_firebase(collection_name, data, timestamp):
         except Exception as e:
             logger.error(f"Error saving to Firebase {collection_name}: {str(e)}")
 
+def initialize_webdriver():
+    """Initialize and return a configured webdriver instance"""
+    try:
+        options = get_chrome_options()
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        driver.set_page_load_timeout(30)
+        return driver
+    except Exception as e:
+        logger.error(f"Error initializing webdriver: {str(e)}")
+        return None
+
 def scrape_pagasa_water_level():
     """Scrapes the water level data table from PAGASA website"""
     global latest_water_data, last_updated, last_water_hash
+    
+    consecutive_failures = 0
+    max_failures = 5  # Maximum number of consecutive failures before longer delay
     
     while scraping_active:
         driver = None
         try:
             logger.info("Starting water level scraping...")
-            options = get_chrome_options()
-            
-            # Initialize browser with service
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=options)
-            
-            # Set page load timeout
-            driver.set_page_load_timeout(30)
+            driver = initialize_webdriver()
+            if not driver:
+                logger.error("Failed to initialize webdriver for water level scraping")
+                consecutive_failures += 1
+                time.sleep(60 * min(consecutive_failures, max_failures))
+                continue
             
             # Navigate to the page
             driver.get("https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/water/table.do")
@@ -344,7 +365,8 @@ def scrape_pagasa_water_level():
             table = soup.find('table', {'class': 'table-type1'})
             if not table:
                 logger.error("Could not find water level data table")
-                time.sleep(60)  # Wait a minute before retrying
+                consecutive_failures += 1
+                time.sleep(60 * min(consecutive_failures, max_failures))
                 continue
             
             data = []
@@ -372,8 +394,12 @@ def scrape_pagasa_water_level():
             
             if not data:
                 logger.error("No water level data was scraped")
-                time.sleep(60)  # Wait a minute before retrying
+                consecutive_failures += 1
+                time.sleep(60 * min(consecutive_failures, max_failures))
                 continue
+            
+            # Reset consecutive failures on success
+            consecutive_failures = 0
             
             # Calculate hash of new data
             new_hash = calculate_data_hash(data)
@@ -392,7 +418,8 @@ def scrape_pagasa_water_level():
             
         except Exception as e:
             logger.error(f"Error during water level scraping: {str(e)}")
-            time.sleep(60)  # Wait a minute before retrying
+            consecutive_failures += 1
+            time.sleep(60 * min(consecutive_failures, max_failures))
         finally:
             if driver:
                 try:
@@ -400,24 +427,27 @@ def scrape_pagasa_water_level():
                 except:
                     pass
         
-        time.sleep(300)  # 5 minutes
+        # Calculate next scrape time to maintain 5-minute intervals
+        next_scrape = datetime.now() + timedelta(minutes=5)
+        time.sleep(max(0, (next_scrape - datetime.now()).total_seconds()))
 
 def scrape_pagasa_rainfall():
     """Scrapes the rainfall data table from PAGASA website"""
     global latest_rainfall_data, last_updated, last_rainfall_hash
     
+    consecutive_failures = 0
+    max_failures = 5  # Maximum number of consecutive failures before longer delay
+    
     while scraping_active:
         driver = None
         try:
             logger.info("Starting rainfall scraping...")
-            options = get_chrome_options()
-            
-            # Initialize browser with service
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=options)
-            
-            # Set page load timeout
-            driver.set_page_load_timeout(30)
+            driver = initialize_webdriver()
+            if not driver:
+                logger.error("Failed to initialize webdriver for rainfall scraping")
+                consecutive_failures += 1
+                time.sleep(60 * min(consecutive_failures, max_failures))
+                continue
             
             # Navigate to the page
             driver.get("https://pasig-marikina-tullahanffws.pagasa.dost.gov.ph/rainfall/table.do")
@@ -437,7 +467,8 @@ def scrape_pagasa_rainfall():
             table = soup.find('table', {'class': 'table-type1'})
             if not table:
                 logger.error("Could not find rainfall data table")
-                time.sleep(60)  # Wait a minute before retrying
+                consecutive_failures += 1
+                time.sleep(60 * min(consecutive_failures, max_failures))
                 continue
             
             data = []
@@ -467,8 +498,12 @@ def scrape_pagasa_rainfall():
             
             if not data:
                 logger.error("No rainfall data was scraped")
-                time.sleep(60)  # Wait a minute before retrying
+                consecutive_failures += 1
+                time.sleep(60 * min(consecutive_failures, max_failures))
                 continue
+            
+            # Reset consecutive failures on success
+            consecutive_failures = 0
             
             # Calculate hash of new data
             new_hash = calculate_data_hash(data)
@@ -487,7 +522,8 @@ def scrape_pagasa_rainfall():
             
         except Exception as e:
             logger.error(f"Error during rainfall scraping: {str(e)}")
-            time.sleep(60)  # Wait a minute before retrying
+            consecutive_failures += 1
+            time.sleep(60 * min(consecutive_failures, max_failures))
         finally:
             if driver:
                 try:
@@ -495,7 +531,9 @@ def scrape_pagasa_rainfall():
                 except:
                     pass
         
-        time.sleep(300)  # 5 minutes
+        # Calculate next scrape time to maintain 5-minute intervals
+        next_scrape = datetime.now() + timedelta(minutes=5)
+        time.sleep(max(0, (next_scrape - datetime.now()).total_seconds()))
 
 class WaterLevelData(Resource):
     def get(self):
@@ -622,6 +660,39 @@ def start_scrapers():
 
 # Initialize scraping when the module is imported
 start_scrapers()
+
+# Add health check endpoint
+@app.route('/health')
+def health_check():
+    """Health check endpoint for uptime monitoring"""
+    try:
+        # Check if scraping is active
+        if not scraping_active:
+            return jsonify({'status': 'error', 'message': 'Scraping is not active'}), 503
+        
+        # Check if we have recent data
+        current_time = datetime.now()
+        if last_updated:
+            last_update_time = datetime.strptime(last_updated, "%Y-%m-%d %H:%M")
+            time_diff = (current_time - last_update_time).total_seconds()
+            
+            # If no updates in last 10 minutes, consider it unhealthy
+            if time_diff > 600:  # 10 minutes
+                return jsonify({
+                    'status': 'warning',
+                    'message': f'No data updates in {int(time_diff/60)} minutes',
+                    'last_update': last_updated
+                }), 200
+        
+        return jsonify({
+            'status': 'healthy',
+            'last_update': last_updated,
+            'water_data_available': latest_water_data is not None,
+            'rainfall_data_available': latest_rainfall_data is not None
+        }), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     # Get port from environment variable or use default
