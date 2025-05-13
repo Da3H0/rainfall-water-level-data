@@ -641,14 +641,10 @@ def index():
                                 available_dates=available_dates)
 
 # Update the API routes
-api.add_resource(WaterLevelData, '/api/water-level')
-api.add_resource(RainfallData, '/api/rainfall')
+api.add_resource(WaterLevelData, '/api/water-level', '/water-level')  # Register both paths in one line
+api.add_resource(RainfallData, '/api/rainfall', '/rainfall')  # Register both paths in one line
 api.add_resource(CombinedData, '/api/combined')
 api.add_resource(AvailableDates, '/api/dates')
-
-# Keep the original routes for backward compatibility
-api.add_resource(WaterLevelData, '/water-level')
-api.add_resource(RainfallData, '/rainfall')
 
 def start_scrapers():
     """Start the background scraper threads"""
