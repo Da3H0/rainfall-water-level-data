@@ -278,7 +278,48 @@ def get_chrome_options():
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-accelerated-2d-canvas')
     options.add_argument('--disable-gl-drawing-for-tests')
+    options.add_argument('--remote-debugging-port=9222')
+    options.add_argument('--remote-debugging-address=0.0.0.0')
+    options.add_argument('--disable-background-networking')
+    options.add_argument('--disable-background-timer-throttling')
+    options.add_argument('--disable-backgrounding-occluded-windows')
+    options.add_argument('--disable-breakpad')
+    options.add_argument('--disable-component-extensions-with-background-pages')
+    options.add_argument('--disable-default-apps')
+    options.add_argument('--disable-features=TranslateUI')
+    options.add_argument('--disable-ipc-flooding-protection')
+    options.add_argument('--disable-renderer-backgrounding')
+    options.add_argument('--enable-features=NetworkService,NetworkServiceInProcess')
+    options.add_argument('--force-color-profile=srgb')
+    options.add_argument('--metrics-recording-only')
+    options.add_argument('--mute-audio')
+    options.add_argument('--no-default-browser-check')
+    options.add_argument('--no-pings')
+    options.add_argument('--password-store=basic')
+    options.add_argument('--use-mock-keychain')
+    options.add_argument('--disable-hang-monitor')
+    options.add_argument('--disable-prompt-on-repost')
+    options.add_argument('--disable-sync')
+    options.add_argument('--force-device-scale-factor=1')
+    options.add_argument('--hide-scrollbars')
+    options.add_argument('--disable-notifications')
+    options.add_argument('--disable-popup-blocking')
+    options.add_argument('--disable-save-password-bubble')
+    options.add_argument('--disable-translate')
+    options.add_argument('--disable-web-security')
+    options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+    options.add_argument('--disable-site-isolation-trials')
+    options.add_argument('--disable-web-security')
+    options.add_argument('--allow-running-insecure-content')
+    options.add_argument('--ignore-certificate-errors')
+    options.add_argument('--ignore-ssl-errors')
     options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    
+    # Add experimental options
+    options.add_experimental_option('excludeSwitches', ['enable-automation'])
+    options.add_experimental_option('useAutomationExtension', False)
+    options.add_experimental_option('excludeSwitches', ['enable-logging'])
+    
     return options
 
 def calculate_data_hash(data):
@@ -341,7 +382,8 @@ def initialize_webdriver():
         # Try to use Chrome from PATH first
         try:
             logger.info("Attempting to use Chrome from PATH...")
-            driver = webdriver.Chrome(options=options)
+            service = Service()
+            driver = webdriver.Chrome(service=service, options=options)
             driver.set_page_load_timeout(30)
             logger.info("Successfully initialized Chrome from PATH")
             return driver
@@ -392,6 +434,13 @@ def scrape_pagasa_water_level():
                 EC.presence_of_element_located((By.CSS_SELECTOR, "table.table-type1"))
             )
             time.sleep(10)  # Increased wait time
+            
+            # Check if page is loaded
+            if "table.do" not in driver.current_url:
+                logger.error("Failed to load water level page")
+                consecutive_failures += 1
+                time.sleep(60 * min(consecutive_failures, max_failures))
+                continue
             
             html = driver.page_source
             soup = BeautifulSoup(html, 'html.parser')
