@@ -50,6 +50,8 @@ last_updated = None
 scraping_active = True
 last_water_hash = None  # Add this to track changes
 last_rainfall_hash = None  # Add this to track changes
+water_thread = None  # Add global thread variables
+rainfall_thread = None
 
 # Add this HTML template at the top of the file after the imports
 HTML_TEMPLATE = """
@@ -576,6 +578,8 @@ api.add_resource(RainfallData, '/rainfall')
 
 def start_scrapers():
     """Start the background scraper threads"""
+    global water_thread, rainfall_thread
+    
     try:
         water_thread = threading.Thread(target=scrape_pagasa_water_level)
         rainfall_thread = threading.Thread(target=scrape_pagasa_rainfall)
@@ -589,20 +593,25 @@ def start_scrapers():
         
         # Add error handling for thread monitoring
         def monitor_threads():
+            global water_thread, rainfall_thread
             while True:
-                if not water_thread.is_alive():
-                    logger.error("Water level scraper thread died, restarting...")
-                    water_thread = threading.Thread(target=scrape_pagasa_water_level)
-                    water_thread.daemon = True
-                    water_thread.start()
-                
-                if not rainfall_thread.is_alive():
-                    logger.error("Rainfall scraper thread died, restarting...")
-                    rainfall_thread = threading.Thread(target=scrape_pagasa_rainfall)
-                    rainfall_thread.daemon = True
-                    rainfall_thread.start()
-                
-                time.sleep(60)  # Check every minute
+                try:
+                    if not water_thread.is_alive():
+                        logger.error("Water level scraper thread died, restarting...")
+                        water_thread = threading.Thread(target=scrape_pagasa_water_level)
+                        water_thread.daemon = True
+                        water_thread.start()
+                    
+                    if not rainfall_thread.is_alive():
+                        logger.error("Rainfall scraper thread died, restarting...")
+                        rainfall_thread = threading.Thread(target=scrape_pagasa_rainfall)
+                        rainfall_thread.daemon = True
+                        rainfall_thread.start()
+                    
+                    time.sleep(60)  # Check every minute
+                except Exception as e:
+                    logger.error(f"Error in thread monitoring: {str(e)}")
+                    time.sleep(60)  # Wait before retrying
         
         monitor_thread = threading.Thread(target=monitor_threads)
         monitor_thread.daemon = True
