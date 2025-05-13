@@ -279,21 +279,26 @@ def save_to_firebase(collection_name, data, timestamp):
             except:
                 date_str = datetime.now().strftime("%Y-%m-%d")
 
-            # Add a timestamp field for each data point
+            # Create a copy of the data to avoid modifying the original
+            data_copy = []
             for item in data:
-                item['firebase_timestamp'] = firestore.SERVER_TIMESTAMP
+                item_copy = item.copy()
+                # Remove the firebase_timestamp from individual items
+                if 'firebase_timestamp' in item_copy:
+                    del item_copy['firebase_timestamp']
+                data_copy.append(item_copy)
             
             # Save to date-based collection
             date_collection = f"{collection_name}_{date_str}"
             db.collection(date_collection).document('latest').set({
-                'data': data,
+                'data': data_copy,
                 'last_updated': timestamp,
                 'firebase_timestamp': firestore.SERVER_TIMESTAMP
             })
             
             # Also save to the main collection for latest data
             db.collection(collection_name).document('latest').set({
-                'data': data,
+                'data': data_copy,
                 'last_updated': timestamp,
                 'firebase_timestamp': firestore.SERVER_TIMESTAMP
             })
