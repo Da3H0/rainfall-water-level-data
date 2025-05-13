@@ -5,11 +5,11 @@ services:
     buildCommand: |
       # Install Chrome dependencies
       apt-get update
-      apt-get install -y wget gnupg unzip xvfb libxi6 libgconf-2-4
+      apt-get install -y wget gnupg unzip xvfb libxi6 libgconf-2-4 curl
       
-      # Install Chrome
-      wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
-      echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list
+      # Install Chrome using the official Google Chrome repository
+      curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+      echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list
       apt-get update
       apt-get install -y google-chrome-stable
       
@@ -18,11 +18,12 @@ services:
       
       # Install ChromeDriver
       CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1)
-      wget -q "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}"
-      CHROMEDRIVER_VERSION=$(cat "LATEST_RELEASE_${CHROME_VERSION}")
-      wget -q "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
-      unzip chromedriver_linux64.zip
-      mv chromedriver /usr/local/bin/
+      echo "Chrome version: $CHROME_VERSION"
+      
+      # Download and install ChromeDriver
+      wget -q "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROME_VERSION.0.5735.90/linux64/chromedriver-linux64.zip"
+      unzip chromedriver-linux64.zip
+      mv chromedriver-linux64/chromedriver /usr/local/bin/
       chmod +x /usr/local/bin/chromedriver
       
       # Verify ChromeDriver installation
@@ -31,10 +32,14 @@ services:
       # Install Python dependencies
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: |
+      # Start Xvfb
+      Xvfb :99 -screen 0 1024x768x16 &
+      # Start the application
+      gunicorn app:app
     envVars:
       - key: CHROME_BIN
-        value: /usr/bin/google-chrome
+        value: /usr/bin/google-chrome-stable
       - key: RENDER
         value: "true"
       - key: PYTHONUNBUFFERED

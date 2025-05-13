@@ -375,7 +375,7 @@ def initialize_webdriver():
         # Log Chrome binary path in production
         if os.environ.get('RENDER'):
             logger.info("Running in production environment (Render)")
-            chrome_path = os.environ.get('CHROME_BIN', '/usr/bin/google-chrome')
+            chrome_path = os.environ.get('CHROME_BIN', '/usr/bin/google-chrome-stable')
             logger.info(f"Chrome binary path: {chrome_path}")
             
             # Verify Chrome binary exists
@@ -383,8 +383,8 @@ def initialize_webdriver():
                 logger.error(f"Chrome binary not found at {chrome_path}")
                 # Try to find Chrome in common locations
                 common_paths = [
-                    '/usr/bin/google-chrome',
                     '/usr/bin/google-chrome-stable',
+                    '/usr/bin/google-chrome',
                     '/usr/bin/chrome',
                     '/usr/bin/chromium',
                     '/usr/bin/chromium-browser'
@@ -402,6 +402,16 @@ def initialize_webdriver():
             
             # Add display configuration for headless mode
             os.environ['DISPLAY'] = ':99'
+            
+            # Add additional options for Render environment
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-gpu')
+            options.add_argument('--disable-software-rasterizer')
+            options.add_argument('--disable-extensions')
+            options.add_argument('--single-process')
+            options.add_argument('--no-zygote')
+            options.add_argument('--disable-dev-shm-usage')
         
         # Try to use Chrome from PATH first
         try:
